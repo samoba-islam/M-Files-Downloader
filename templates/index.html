@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>M-Files Browser Downloader</title>
+  <style>
+    :root {
+      --bg: #f7f8f4;
+      --card: #ffffff;
+      --text: #17212b;
+      --muted: #6a7682;
+      --line: #d8dde2;
+      --accent: #005f73;
+      --accent-2: #0a9396;
+      --danger: #b42318;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: radial-gradient(circle at top right, #d9f0f2 0%, var(--bg) 45%);
+      color: var(--text);
+    }
+    .container {
+      max-width: 1100px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 16px;
+    }
+    h1, h2, h3 { margin: 0 0 10px 0; }
+    .muted { color: var(--muted); }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      margin-top: 6px;
+      margin-bottom: 12px;
+    }
+    button, .btn {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      text-decoration: none;
+      display: inline-block;
+      font-size: 14px;
+    }
+    button.secondary, .btn.secondary { background: var(--accent-2); }
+    button.light, .btn.light {
+      color: var(--text);
+      background: #edf1f4;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .col {
+      flex: 1 1 300px;
+      min-width: 240px;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 8px;
+      vertical-align: top;
+    }
+    th { font-size: 13px; color: var(--muted); }
+    .alert {
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #fac5be;
+      color: var(--danger);
+      background: #fff0ee;
+      margin-bottom: 12px;
+    }
+    .alert.info {
+      border-color: #a6d7df;
+      color: #0a4f5f;
+      background: #edf9fb;
+    }
+    .toolbar {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .breadcrumbs a {
+      color: var(--accent);
+      text-decoration: none;
+      margin-right: 8px;
+    }
+    .file-list a {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .pager {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>M-Files Browser Downloader</h1>
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert {% if category == 'info' %}info{% endif %}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% if mode == "login" %}
+      <div class="card">
+        <h2>Connect to M-Files Web Service</h2>
+        <p class="muted">Defaults were loaded from the configured credentials file (see <code>MFWS_DEFAULTS_FILE</code> env var). Update if needed.</p>
+        <form method="post" action="{{ url_for('login') }}">
+          <label>REST Base URL</label>
+          <input type="text" name="base_url" value="{{ defaults.base_url }}" required />
+
+          <div class="row">
+            <div class="col">
+              <label>Username</label>
+              <input type="text" name="username" value="{{ defaults.username }}" required />
+            </div>
+            <div class="col">
+              <label>Password</label>
+              <input type="password" name="password" value="{{ defaults.password }}" required />
+            </div>
+          </div>
+
+          <label>Vault GUID</label>
+          <input type="text" name="vault_guid" value="{{ defaults.vault_guid }}" required />
+
+          <button type="submit">Login</button>
+        </form>
+      </div>
+    {% else %}
+      <div class="card">
+        <div class="toolbar">
+          <span><strong>User:</strong> {{ username }}</span>
+          <span><strong>REST:</strong> {{ base_url }}</span>
+          <a class="btn light" href="{{ url_for('index') }}">Go Root</a>
+          <a class="btn light" href="{{ url_for('logout') }}">Logout</a>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Current Path</h3>
+        <div class="breadcrumbs">
+          <a href="{{ url_for('index') }}">root</a>
+          {% for bc in breadcrumbs %}
+            / <a href="{{ url_for('index', path=bc.path) }}">{{ bc.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="toolbar">
+          <form method="post" action="{{ url_for('download_folder') }}" style="margin:0;">
+            <input type="hidden" name="path" value="{{ path }}" />
+            <button type="submit" class="secondary">Download All (Current Folder + Subfolders)</button>
+          </form>
+          <form method="post" action="{{ url_for('direct_download_start_folder') }}" style="margin:0;">
+            <input type="hidden" name="path" value="{{ path }}" />
+            <input id="worker-count" type="text" name="worker_count" value="6" placeholder="Workers (1-16)" style="width:130px; padding:8px; border:1px solid #d8dde2; border-radius:8px;" />
+            <input id="object-rate-limit" type="text" name="object_rate_limit" placeholder="Objects/sec (e.g. 100)" style="width:170px; padding:8px; border:1px solid #d8dde2; border-radius:8px;" />
+            <input id="chunk-start" type="text" name="start_index" placeholder="Start (e.g. 1)" style="width:140px; padding:8px; border:1px solid #d8dde2; border-radius:8px;" />
+            <input id="chunk-end" type="text" name="end_index" placeholder="End (e.g. 5000)" style="width:140px; padding:8px; border:1px solid #d8dde2; border-radius:8px;" />
+            <button type="submit">Direct Download All (No Zip)</button>
+            <button type="button" class="btn light" onclick="estimateChunkRange()">Estimate Range</button>
+          </form>
+        </div>
+        <p class="muted" style="margin-top:8px;">Use empty range for all objects, or set chunk range (example: 1-5000). Files save one-by-one to the configured download directory.</p>
+        <p id="range-estimate" class="muted" style="margin-top:6px;">
+          Range estimate: object count and storage size will appear here.
+        </p>
+      </div>
+
+      {% if active_job %}
+      <div class="card" id="direct-job-panel" data-job-id="{{ active_job.id }}">
+        <h3>Direct Download Progress</h3>
+        <p><strong>Job ID:</strong> <span id="job-id">{{ active_job.id }}</span></p>
+        <p><strong>Status:</strong> <span id="job-status">{{ active_job.status }}</span> | <strong>Phase:</strong> <span id="job-phase">{{ active_job.phase }}</span></p>
+        <p><strong>Workers:</strong> <span id="job-workers">{{ active_job.worker_count }}</span></p>
+        <p><strong>Object Rate:</strong> <span id="job-rate">{{ active_job.object_rate_limit or 'unlimited' }}</span></p>
+        <p><strong>Objects:</strong> <span id="job-objects">{{ active_job.processed_objects }}</span>/<span id="job-objects-total">{{ active_job.total_objects }}</span></p>
+        <p><strong>Chunk:</strong> <span id="job-chunk">{{ active_job.chunk_start or 1 }} - {{ active_job.chunk_end or active_job.total_objects }}</span> of <span id="job-source-total">{{ active_job.source_total_objects or active_job.total_objects }}</span></p>
+        <p><strong>Files:</strong> <span id="job-files">{{ active_job.downloaded_files }}</span> downloaded, <span id="job-files-failed">{{ active_job.failed_files }}</span> failed, <span id="job-files-total">{{ active_job.total_files }}</span> discovered</p>
+        <p><strong>Current:</strong> <span id="job-current">{{ active_job.current_item or '-' }}</span></p>
+        <p><strong>Output:</strong> <code id="job-output">{{ active_job.output_dir }}</code></p>
+        <p><strong>Error Log:</strong> <code id="job-log">{{ active_job.log_path }}</code></p>
+        <div class="toolbar">
+          <button type="button" class="btn light" onclick="pauseJob('{{ active_job.id }}')">Pause</button>
+          <button type="button" class="btn light" onclick="resumeJob('{{ active_job.id }}')">Resume</button>
+        </div>
+      </div>
+      {% endif %}
+
+      <div class="card">
+        <h3>Folders / Views</h3>
+        {% if folders %}
+          <table>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Open</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for folder in folders %}
+                <tr>
+                  <td>{{ folder.name }}</td>
+                  <td><a class="btn light" href="{{ url_for('index', path=folder.path) }}">Open</a></td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <p class="muted">No folders/views found at this level.</p>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3>Objects / Files</h3>
+        <div class="pager">
+          <span class="muted">Total objects: <strong>{{ total_objects }}</strong></span>
+          <span class="muted">Page {{ page }} / {{ total_pages }}</span>
+          <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=page_size) }}">First</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=(page-1 if page>1 else 1), page_size=page_size) }}">Prev</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=(page+1 if page<total_pages else total_pages), page_size=page_size) }}">Next</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=total_pages, page_size=page_size) }}">Last</a>
+          <span class="muted">Page size:</span>
+          <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=50) }}">50</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=100) }}">100</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=200) }}">200</a>
+          <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=500) }}">500</a>
+        </div>
+        <form method="post" action="{{ url_for('download_selected') }}">
+          <input type="hidden" name="path" value="{{ path }}" />
+          <input type="hidden" id="worker-count-selected" name="worker_count" value="6" />
+          <input type="hidden" id="object-rate-selected" name="object_rate_limit" value="" />
+          {% if objects %}
+            <table>
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Title</th>
+                  <th>Object ID</th>
+                  <th>Actions</th>
+                  <th>Files</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for obj in objects %}
+                  <tr>
+                    <td><input type="checkbox" name="object_keys" value="{{ obj.key }}" /></td>
+                    <td>{{ obj.title }}</td>
+                    <td>{{ obj.type }}:{{ obj.id }}:{{ obj.version }}</td>
+                    <td>
+                      <a class="btn light" href="{{ url_for('download_object', type=obj.type, id=obj.id, version=obj.version, title=obj.title, path=path) }}">Download Object (Zip)</a>
+                    </td>
+                    <td class="file-list" id="files-{{ obj.type }}-{{ obj.id }}-{{ obj.version }}">
+                      <button type="button" class="btn light" onclick="loadFiles({{ obj.type }}, {{ obj.id }}, '{{ obj.version }}', '{{ path }}')">List Files</button>
+                    </td>
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <p style="margin-top:12px;">
+              <button type="submit">Download Selected (Zip)</button>
+              <button type="submit" formaction="{{ url_for('direct_download_start_selected') }}" formmethod="post" class="secondary">Direct Download Selected (No Zip)</button>
+            </p>
+            <div class="pager">
+              <a class="btn light" href="{{ url_for('index', path=path, page=1, page_size=page_size) }}">First</a>
+              <a class="btn light" href="{{ url_for('index', path=path, page=(page-1 if page>1 else 1), page_size=page_size) }}">Prev</a>
+              <span class="muted">Page {{ page }} / {{ total_pages }}</span>
+              <a class="btn light" href="{{ url_for('index', path=path, page=(page+1 if page<total_pages else total_pages), page_size=page_size) }}">Next</a>
+              <a class="btn light" href="{{ url_for('index', path=path, page=total_pages, page_size=page_size) }}">Last</a>
+            </div>
+          {% else %}
+            <p class="muted">No object entries found here.</p>
+          {% endif %}
+        </form>
+      </div>
+    {% endif %}
+  </div>
+
+<script>
+async function loadFiles(type, id, version, path) {
+  const targetId = `files-${type}-${id}-${version}`;
+  const node = document.getElementById(targetId);
+  node.innerHTML = 'Loading...';
+
+  try {
+    const url = `/object/files?type=${encodeURIComponent(type)}&id=${encodeURIComponent(id)}&version=${encodeURIComponent(version)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+
+    if (!res.ok || json.error) {
+      node.innerHTML = `<span style="color:#b42318;">${json.error || 'Failed to load files'}</span>`;
+      return;
+    }
+
+    if (!json.files || json.files.length === 0) {
+      node.innerHTML = '<span class="muted">No files</span>';
+      return;
+    }
+
+    node.innerHTML = '';
+    for (const f of json.files) {
+      const a = document.createElement('a');
+      const srcType = f.type ?? type;
+      const srcId = f.obj_id ?? id;
+      const srcVersion = f.version ?? version;
+      a.href = `/download/file?type=${encodeURIComponent(srcType)}&id=${encodeURIComponent(srcId)}&version=${encodeURIComponent(srcVersion)}&file_id=${encodeURIComponent(f.id)}&filename=${encodeURIComponent(f.filename)}&path=${encodeURIComponent(path || '')}`;
+      a.textContent = f.source_title ? `Download ${f.filename} (from ${f.source_title})` : `Download ${f.filename}`;
+      a.className = 'btn light';
+      a.style.marginBottom = '6px';
+      node.appendChild(a);
+    }
+  } catch (err) {
+    node.innerHTML = `<span style="color:#b42318;">${err.message}</span>`;
+  }
+}
+</script>
+<script>
+function humanBytes(bytes) {
+  const b = Number(bytes || 0);
+  if (b < 1024) return `${b} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let val = b;
+  let idx = -1;
+  while (val >= 1024 && idx < units.length - 1) {
+    val /= 1024;
+    idx += 1;
+  }
+  return `${val.toFixed(2)} ${units[idx]}`;
+}
+
+async function estimateChunkRange() {
+  const node = document.getElementById('range-estimate');
+  if (!node) return;
+  node.textContent = 'Estimating...';
+
+  const form = new URLSearchParams();
+  form.set('path', '{{ path }}');
+  form.set('start_index', document.getElementById('chunk-start')?.value || '');
+  form.set('end_index', document.getElementById('chunk-end')?.value || '');
+
+  try {
+    const res = await fetch('{{ url_for("direct_download_estimate_folder") }}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: form.toString(),
+    });
+    const j = await res.json();
+    if (!res.ok || j.error) {
+      node.textContent = `Range estimate failed: ${j.error || 'unknown error'}`;
+      return;
+    }
+    node.textContent =
+      `Range ${j.range_start}-${j.range_end} of ${j.source_total_objects} objects | ` +
+      `Objects: ${j.object_count} | Files: ${j.file_count} | ` +
+      `Estimated size: ${humanBytes(j.total_bytes)} (${j.total_bytes} bytes)`;
+  } catch (err) {
+    node.textContent = `Range estimate failed: ${err.message}`;
+  }
+}
+
+async function fetchJobStatus(jobId) {
+  try {
+    const res = await fetch(`/direct-download/job/${encodeURIComponent(jobId)}`);
+    if (!res.ok) return;
+    const j = await res.json();
+    document.getElementById('job-status').textContent = j.status;
+    document.getElementById('job-phase').textContent = j.phase;
+    document.getElementById('job-workers').textContent = j.worker_count || '-';
+    document.getElementById('job-rate').textContent = j.object_rate_limit || 'unlimited';
+    document.getElementById('job-objects').textContent = j.processed_objects;
+    document.getElementById('job-objects-total').textContent = j.total_objects;
+    document.getElementById('job-files').textContent = j.downloaded_files;
+    document.getElementById('job-files-failed').textContent = j.failed_files;
+    document.getElementById('job-files-total').textContent = j.total_files;
+    document.getElementById('job-current').textContent = j.current_item || '-';
+    document.getElementById('job-output').textContent = j.output_dir || '-';
+    document.getElementById('job-log').textContent = j.log_path || '-';
+    const chunkStart = j.chunk_start || 1;
+    const chunkEnd = j.chunk_end || j.total_objects || 0;
+    const sourceTotal = j.source_total_objects || j.total_objects || 0;
+    document.getElementById('job-chunk').textContent = `${chunkStart} - ${chunkEnd}`;
+    document.getElementById('job-source-total').textContent = sourceTotal;
+  } catch (_) {}
+}
+
+async function pauseJob(jobId) {
+  await fetch(`/direct-download/job/${encodeURIComponent(jobId)}/pause`, { method: 'POST' });
+  await fetchJobStatus(jobId);
+}
+
+async function resumeJob(jobId) {
+  await fetch(`/direct-download/job/${encodeURIComponent(jobId)}/resume`, { method: 'POST' });
+  await fetchJobStatus(jobId);
+}
+
+(function setupJobPolling() {
+  const workerInput = document.getElementById('worker-count');
+  const workerSelected = document.getElementById('worker-count-selected');
+  const rateInput = document.getElementById('object-rate-limit');
+  const rateSelected = document.getElementById('object-rate-selected');
+  if (workerInput && workerSelected) {
+    const sync = () => { workerSelected.value = workerInput.value || '6'; };
+    sync();
+    workerInput.addEventListener('input', sync);
+  }
+  if (rateInput && rateSelected) {
+    const syncRate = () => { rateSelected.value = rateInput.value || ''; };
+    syncRate();
+    rateInput.addEventListener('input', syncRate);
+  }
+
+  const panel = document.getElementById('direct-job-panel');
+  if (!panel) return;
+  const jobId = panel.dataset.jobId;
+  fetchJobStatus(jobId);
+  setInterval(() => fetchJobStatus(jobId), 2000);
+})();
+</script>
+</body>
+</html>
