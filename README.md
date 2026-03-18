@@ -134,7 +134,14 @@ M-Files_downloader/
 ```
 
 ---
+## 👤 Author
 
+**Shawon Hossain**
+
+- GitHub: [@samoba-islam](https://github.com/samoba-islam)
+- Website: [samoba.pages.dev](https://samoba.pages.dev)
+
+---
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
